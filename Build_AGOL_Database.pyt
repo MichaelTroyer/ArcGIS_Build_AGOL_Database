@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-
 """
 Author:
 Michael Troyer
@@ -9,7 +8,7 @@ Date:
 12/19/2017
 
 Purpose:
-Build an AGOL database:
+Build an AGOL publication ready field data collection database from a template:
     1. Create file geodatabase
     2. Add domains to database
         a. Add user domains
@@ -19,30 +18,21 @@ Build an AGOL database:
         b. Add Global IDs
         c. Enable Attachments
     4. Assign domains
-    5. Profit
 
-TODO: Figure out step 5..
-      Also explain how this shit works..
-
-#####################
-#    __       __    #
-#      \(''/)/      #
-#                   #
-#####################
 """
 
 
 import csv
+import datetime
+import getpass
 import os
 import sys
 import traceback
 
 import arcpy
-import getpass
 
-sys.path.append(r'T:\CO\GIS\gistools\tools\Cultural\z_other_tools')
-from gis_modules import utilities
-from gis_modules.add_gnss_fields import check_and_create_domains, add_gnss_fields
+from helpers import utilities
+from helpers import add_gnss_fields as gnss
 
 
 arcpy.env.addOutputsToMap = False
@@ -138,7 +128,7 @@ class BuildDatabase(object):
                                                domain_name=domain_name)
 
             # 2a: Create the ESRI domains
-            check_and_create_domains(gdb_path)
+            gnss.check_and_create_domains(gdb_path)
             
             # Step 3: Create feature classes
             for fc_template in template_fcs:
@@ -152,7 +142,7 @@ class BuildDatabase(object):
                 
                 # 3a: Add the ESRI fields to point(s) fcs only
                 if geo_type == 'Point':
-                    add_gnss_fields(fc_name)
+                    gnss.add_gnss_fields(fc_name)
 
                 # 3b: Add Global ID
                 arcpy.AddGlobalIDs_management(fc_name)
