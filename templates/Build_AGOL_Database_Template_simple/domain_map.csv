@@ -1,0 +1,10 @@
+feature,field,domain
+Lines,line_age,dm_RESOURCE_AGE
+Lines,line_class,dm_LINE_CLASS
+Lines,line_type,dm_LINE_TYPE
+Points,point_age,dm_RESOURCE_AGE
+Points,point_class,dm_POINT_CLASS
+Points,point_type,dm_POINT_TYPE
+Polygons,poly_age,dm_RESOURCE_AGE
+Polygons,poly_class,dm_POLY_CLASS
+Polygons,poly_type,dm_POLY_TYPE
