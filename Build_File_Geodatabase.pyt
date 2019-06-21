@@ -51,36 +51,46 @@ Outputs:
     - Will be named according to file name without <point_, line_, or polygon_> prefix
 
 05. Add relationship classes from relationship class mapping csv
-    - Must be titled rel_mapping.csv
+    - Must be titled relationship_classes.csv
     - Must have columns for describing each relationship class attribute:
-        NAME, TYPE, ORIGIN_TABLE, DESTINATION_TABLE,
+        NAME, TYPE, ORIGIN_TABLE, DESTINATION_TABLE, CARDINALITY
         ORIGIN_PK, ORIGIN_FK, DESTINATION_PK, DESTINATION_FK,
         FORWARD_LABEL, BACKWARD_LABEL, MESSAGE_DIRECTION, ATTRIBUTED
 
 06. Add Attachments from attachments csv table
-    - Must be title attachments.csv
+    - Must be title add_attachments.csv
     - Must have <name> column for feature class or table to add attachments        
 
 07. Enable Edit Tracking from edit_tracking csv table
-    - Must be title edit_tracking.csv
+    - Must be title add_edit_tracking.csv
     - Must have <name> column for feature class or table to enable edit tracking       
-  
-08. Add ESRI Collector fields and domains to point feature classes
-    - Must be titled esri_collector.csv
+
+08. Add GLOBALID fields to tables and feature classes
+    - Must be titled add_globals.csv
+    - Must have <name> column for tables and feature classes to add GLOBALIDs
+
+09. Add ESRI Collector fields and domains to point feature classes
+    - Must be titled add_esri_collector.csv
     - Must have <name> column for point feature classes to add ESRI fields/domains
 """
+
+#TODO: Select a projection dialog
+#TODO: target an existing database/feature dataset
 
 #TODO: what happens when GLOBALID field already exists (skip in create step?)
 #TODO: what happens when __ATTACH tables aready exist (skip in create step?)
 #TODO: what happens when tracking fields already exist (skip in create step?)
 #TODO: what happens when collector fields/domains already exist (skip in create step?)
 
-#TODO: add support for topologies?
+#TODO: add support for subtypes
+#TODO: add support for topologies
+
 
 import csv
 import datetime
 import getpass
 import os
+import re
 import sys
 import traceback
 
@@ -155,112 +165,155 @@ class BuildDatabase(object):
 
             spatial_ref = utilities.find_files(template_dir, '.prj')[0]
 
-            ### Step 01. Create empty file geodatabase
+########### Step 01. Create empty file geodatabase
+            arcpy.AddMessage('Creating Geodatabase: {}'.format(gdb_path))
             arcpy.CreateFileGDB_management(gdb_dir, gdb_name, "10.0")
             arcpy.env.workspace = gdb_path
         
-            ### Step 02. Add user domains to database from domain csv tables
-            # All domain source tables must have 'code' and 'description' fields   
+########### Step 02. Add user domains to database from domain csv tables
             domain_csvs = utilities.find_files(template_dir, '.csv', 'dmn_')
 
             for domain_csv in domain_csvs:
                 # Get the basename less the extension
                 domain_name = os.path.splitext(os.path.basename(domain_csv))[0]
-                
+                arcpy.AddMessage('Adding Domain: {}'.format(domain_name))
+
+                # All domain source tables must have 'code' and 'description' fields
                 arcpy.TableToDomain_management(
                     in_table=domain_csv,
                     code_field='code',
                     description_field='description',
                     in_workspace=gdb_path,
-                    domain_name=domain_name
+                    domain_name=domain_name,
+                    domain_description=domain_name.replace('dmn_', ''),
                     )           
 
-            ### Step 3: Create non-spatial tables
+########### Step 03: Create non-spatial tables from schema csv tables
             tbl_csvs = utilities.find_files(template_dir, '.csv', 'tbl_')
             for tbl_csv in tbl_csvs:
                 # Get the basename less the extension and <tbl_>
                 tbl_name = os.path.splitext(os.path.basename(tbl_csv))[0].replace('tbl_', '')
+                arcpy.AddMessage('Adding Table: {}'.format(tbl_name))
 
                 # Create the table
                 arcpy.CreateTable_management(
                     out_path=gdb_path,
-                    out_name=fc_name,
+                    out_name=tbl_name,
                     )
 
                 # Add the fields
-                with open(tbl_csv, 'r') as f:
-                    csv_reader = csv.reader(f)
-                    headers = next(csv_reader)[1:]
-                    for row in csv_reader:
-                        attribute_desc = {header: value for header, value in zip(headers, row)}
-                        arcpy.AddField_management(
-                            in_table=os.path.join(gdb_path, tbl_name),
-                            field_name=attribute_desc['NAME'],
-                            field_type=attribute_desc['TYPE'],
-                            field_precision=attribute_desc['PRECISION'],
-                            field_scale=attribute_desc['SCALE'],
-                            field_length=attribute_desc['LENGTH'],
-                            field_alias=attribute_desc['ALIAS'],
-                            field_is_nullable=attribute_desc['ISNULLABLE'],
-                            field_is_required=attribute_desc['REQUIRED'],
-                            field_domain=attribute_desc['DOMAIN'],
-                            )
+                utilities.add_fields_from_csv(tbl_csv, os.path.join(gdb_path, tbl_name))
 
-            ### Step 4: Create feature classes
+########### Step 04: Create feature classes from schema csv tables
             fc_csvs = utilities.find_files(template_dir, '.csv', 'fc_')
             for fc_csv in fc_csvs:
                 # Get the basename less the extension and <fc_>
                 fc_name = os.path.splitext(os.path.basename(fc_csv))[0].replace('fc_', '')
 
                 # Get the geometry type:
-                for geo_type in ['POINT', 'MULTIPOINT', 'POLYLINE', 'POLYGON']:
+                geo_types = ['POINT', 'MULTIPOINT', 'POLYLINE', 'POLYGON']
+                for geo_type in geo_types:
                     if fc_name.upper().startswith(geo_type):
-                        fc_name = fc_name.replace(geo_type, '')
                         break
+                    else: geo_type = None  # Reset so we don't carry from previous loop
 
-                # Create the feature class
+                # Create the feature class - strip the geo_type
+                fc_name = re.sub(geo_type+'_', '', fc_name, flags=re.IGNORECASE)
+                arcpy.AddMessage('Adding Feature Class: {}'.format(fc_name))
                 arcpy.CreateFeatureclass_management(
                     out_path=gdb_path,
                     out_name=fc_name,
                     geometry_type=geo_type,
-                    spatial_reference=spatial_ref
+                    spatial_reference=spatial_ref,
                     )
 
                 # Add the fields
-                with open(fc_csv, 'r') as f:
+                utilities.add_fields_from_csv(fc_csv, os.path.join(gdb_path, fc_name))
+                
+########### Step 05. Add relationship classes from relationship class mapping csv
+            rc_csv = os.path.join(template_dir, 'relationship_classes.csv')
+            if os.path.exists(rc_csv):
+                with open(rc_csv, 'r') as f:
                     csv_reader = csv.reader(f)
-                    headers = next(csv_reader)[1:]
+                    headers = next(csv_reader)
                     for row in csv_reader:
-                        attribute_desc = {header: value for header, value in zip(headers, row)}
-                        arcpy.AddField_management(
-                            in_table=os.path.join(gdb_path, fc_name),
-                            field_name=attribute_desc['NAME'],
-                            field_type=attribute_desc['TYPE'],
-                            field_precision=attribute_desc['PRECISION'],
-                            field_scale=attribute_desc['SCALE'],
-                            field_length=attribute_desc['LENGTH'],
-                            field_alias=attribute_desc['ALIAS'],
-                            field_is_nullable=attribute_desc['ISNULLABLE'],
-                            field_is_required=attribute_desc['REQUIRED'],
-                            field_domain=attribute_desc['DOMAIN'],
+                        rc_desc = {header: value for header, value in zip(headers, row)}
+                        arcpy.AddMessage('Creating Relationship Class: {}'.format(rc_desc['NAME']))
+                        arcpy.CreateRelationshipClass_management(
+                            origin_table=rc_desc['ORIGIN_TABLE'],
+                            destination_table=rc_desc['DESTINATION_TABLE'],
+                            out_relationship_class=rc_desc['NAME'],
+                            relationship_type=rc_desc['TYPE'],
+                            forward_label=rc_desc['FORWARD_LABEL'],
+                            backward_label=rc_desc['BACKWARD_LABEL'],
+                            message_direction=rc_desc['MESSAGE_DIRECTION'],
+                            cardinality=rc_desc['CARDINALITY'],
+                            attributed=rc_desc['ATTRIBUTED'],
+                            origin_primary_key=rc_desc['ORIGIN_PK'],
+                            origin_foreign_key=rc_desc['ORIGIN_FK'],
+                            destination_primary_key=rc_desc['DESTINATION_PK'],
+                            destination_foreign_key=rc_desc['DESTINATION_FK'],
                             )
 
-                
-                # 3a: Add the ESRI fields to point(s) fcs only
-                # if esri_collector:
-                    # check_and_create_domains(geodatabase)
-                if geo_type == 'Point':
-                    gnss.add_gnss_fields(fc_name)
+########### Step 06. Add Attachments from attachments csv table
+            attach_csv = os.path.join(template_dir, 'add_attachments.csv')
+            if os.path.exists(attach_csv):
+                with open(attach_csv, 'r') as f:
+                    csv_reader = csv.reader(f)
+                    # Skip the header
+                    csv_reader.next()
+                    attachments = [os.path.join(gdb_path, name[0]) for name in csv_reader]
+                for name in attachments:
+                    arcpy.AddMessage('Adding Attachments to: {}'.format(os.path.basename(name)))
+                    arcpy.EnableAttachments_management(name)
 
-                # 3b: Add Global ID
-                arcpy.AddGlobalIDs_management(fc_name)
-                
-                # 3c: Enable attachments
-                arcpy.EnableAttachments_management(fc_name)
 
+########### Step 07. Enable Edit Tracking from edit_tracking csv table   
+            tracking_csv = os.path.join(template_dir, 'add_edit_tracking.csv')
+            if os.path.exists(tracking_csv):
+                with open(tracking_csv, 'r') as f:
+                    csv_reader = csv.reader(f)
+                    # Skip the header
+                    csv_reader.next()
+                    trackings = [os.path.join(gdb_path, name[0]) for name in csv_reader]
+                for name in trackings:
+                    arcpy.AddMessage('Enabling Edit Tracking on: {}'.format(os.path.basename(name)))
+                    arcpy.EnableEditorTracking_management(
+                        in_dataset=name,
+                        creator_field='created_by',
+                        creation_date_field='created_date',
+                        last_editor_field='last_edited_by',
+                        last_edit_date_field='last_edited_date',
+                        add_fields='ADD_FIELDS',
+                        record_dates_in='UTC',
+                        )
+
+########### Step 08. Add GLOBALID fields to tables and feature classes from globals csv table
+            globals_csv = os.path.join(template_dir, 'add_globals.csv')
+            if os.path.exists(globals_csv):
+                with open(globals_csv, 'r') as f:
+                    csv_reader = csv.reader(f)
+                    # Skip the header
+                    csv_reader.next()
+                    add_globals = [os.path.join(gdb_path, name[0]) for name in csv_reader]
+                for name in add_globals:
+                    arcpy.AddMessage('Adding GlobalIDs to: {}'.format(os.path.basename(name)))
+                    arcpy.AddGlobalIDs_management(name)
+
+########### Step 09. Add ESRI Collector fields and domains to point feature classes
+            collector_csv = os.path.join(template_dir, 'add_esri_collector.csv')
+            if os.path.exists(collector_csv):
+                with open(collector_csv, 'r') as f:
+                    csv_reader = csv.reader(f)
+                    # Skip the header
+                    csv_reader.next()
+                    collectors = [os.path.join(gdb_path, name[0]) for name in csv_reader]
+                for name in collectors:
+                    arcpy.AddMessage('Adding Collector Fields to: {}'.format(os.path.basename(name)))
+                    esri_gnss.add_gnss_fields(name)
 
         except:
-            arcpy.AddMessage(traceback.format_exc())
+            arcpy.AddError(traceback.format_exc())
             
         finally:
             end_time = datetime.datetime.now()
@@ -269,15 +322,3 @@ class BuildDatabase(object):
             utilities.blast_my_cache()
             
         return
-
-
-
-            # domains_map = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
-            #                if f == 'domain_map.csv'][0]
-            # template_gdb = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
-            #                 if f.startswith('src') and f.endswith('.gdb')][0]
-            # arcpy.env.workspace = os.path.join(temp_dir, template_gdb)
-            # template_fcs = [os.path.join(template_gdb, fc) for fc in arcpy.ListFeatureClasses()]
-
-            # # 2a: Create the ESRI domains
-            # gnss.check_and_create_domains(gdb_path)
