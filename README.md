@@ -1,2 +1,7 @@
 # ArcGIS_Build_AGOL_Database
-Create a publication ready field data collection database from a directory of template .csv files.
+Build a file geodatabase from template files.  
+This tool streamlines the production of a file geodatabase using 
+template files that are readily modifiable by non-technical staff.
+Allows the end users to interact with csv tables instead of 
+database creation dialogs in Arcmap and systematizes the database production
+process.
