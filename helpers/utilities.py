@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 """
-Arch general Functions
 
 Michael D. Troyer
 
@@ -14,8 +13,10 @@ import arcpy
 
 
 def blast_my_cache():
-    """Delete in memory tables and feature classes
-       reset to original worksapce when done"""
+    """
+    Delete in memory tables and feature classes
+    reset to original workspace when done
+    """
 
     # get the original workspace location
     orig_workspace = arcpy.env.workspace
@@ -35,6 +36,39 @@ def blast_my_cache():
 
     # Reset the workspace
     arcpy.env.workspace = orig_workspace
+
+
+def find_files(folder, ext, prefixes=None):
+    """
+    Check the input <folder> for files of type <ext> and optionally 
+    with a prefix matching one of <prefixes> and return a list of the
+    full file paths of each matching file.
+    Inputs:
+        :folder: str - full file path to a directory
+        :ext: str - extenstion file type
+        :prefixes: iterable - container of prefixes
+            prefixes must be strings or coercable to strings
+    """
+    if prefixes:
+        if not hasattr(prefixes, '__iter__'):
+            raise ValueError('prefixes must be a container object')
+        try:
+            prefixes = [str(prefix) for prefix in prefixes]
+        except:
+            raise ValueError('Each prefix must be a string or coercible to a string')
+
+    matches = []
+    files = os.listdir(folder)
+    for f in files:
+        if os.path.splitext(f)[1] == ext:
+            if prefixes:
+                for prefix in prefixes:
+                    if f.startswith(prefix):
+                        matches.append(os.path.join(folder, f))
+                        break
+            else:
+                matches.append(os.path.join(folder, f))
+    return matches
 
 
 def buildWhereClauseFromList(table, field, valueList):

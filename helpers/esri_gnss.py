@@ -270,16 +270,3 @@ def add_gnss_fields(feature_layer):
         arcpy.AddError("{}\n".format(e))
         return
 
-if __name__ == "__main__":
-    """
-        Commandline use to add fields to a layer
-
-        Input: layer names (fully qualified paths)
-
-        Example: python add_gps_fields "C:/temp/test.gdb/test" "C:/temp/test.gdb/test2"
-    """
-    parser = argparse.ArgumentParser("Add GPS Fields to Feature Layers")
-    parser.add_argument("layers", nargs='+', help="The layers to add fields to")
-    args = parser.parse_args()
-    for layer in args.layers:
-        add_gnss_fields(layer)
